@@ -5,13 +5,16 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const app = express();
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// Load environment variables (make sure these are set in Render)
+// Load environment variables
 const robloxToken = process.env.ROBLOX_TOKEN;
 const groupId = process.env.GROUP_ID;
 const discordToken = process.env.DISCORD_TOKEN;
 
 // Log to confirm server start
 console.log('Starting server and Discord bot...');
+
+// Variable to manage debounce
+const debounce = new Map();
 
 // Function to get the X-CSRF-TOKEN
 async function getCsrfToken() {
@@ -66,8 +69,14 @@ async function updateRole(playerName, newRole) {
 
         return { success: true, message: `Player's role updated to ${newRole}` };
     } catch (error) {
-        console.error('Error updating role:', error.message);
-        return { success: false, message: error.message };
+        if (error.response && error.response.status === 429) {
+            // Rate limit handling
+            console.log('Rate limit hit. Retry later.');
+            return { success: false, message: 'Rate limit hit. Try again later.' };
+        } else {
+            console.error('Error updating role:', error.message);
+            return { success: false, message: error.message };
+        }
     }
 }
 
@@ -88,12 +97,26 @@ client.on('messageCreate', async message => {
             return;
         }
 
+        // Implement debounce logic
+        const now = Date.now();
+        const cooldown = 5000; // 5 seconds cooldown
+
+        if (debounce.has(message.author.id) && now - debounce.get(message.author.id) < cooldown) {
+            message.reply('You are sending commands too quickly. Please wait a moment.');
+            return;
+        }
+
+        debounce.set(message.author.id, now);
+
         const result = await updateRole(playerName, newRole);
         if (result.success) {
             message.reply(`Successfully updated the role for ${playerName} to ${newRole}`);
         } else {
             message.reply(`Failed to update the role: ${result.message}`);
         }
+
+        // Clear debounce after command execution
+        setTimeout(() => debounce.delete(message.author.id), cooldown);
     }
 });
 
