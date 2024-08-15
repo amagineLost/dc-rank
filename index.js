@@ -5,16 +5,13 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const app = express();
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// Load environment variables
+// Load environment variables (make sure these are set in Render)
 const robloxToken = process.env.ROBLOX_TOKEN;
 const groupId = process.env.GROUP_ID;
 const discordToken = process.env.DISCORD_TOKEN;
 
 // Log to confirm server start
 console.log('Starting server and Discord bot...');
-
-// Variable to manage debounce
-const debounce = new Map();
 
 // Function to get the X-CSRF-TOKEN
 async function getCsrfToken() {
@@ -24,28 +21,48 @@ async function getCsrfToken() {
                 'Cookie': `.ROBLOSECURITY=${robloxToken}`
             }
         });
+        console.log('CSRF Token Retrieved:', response.headers['x-csrf-token']);
         return response.headers['x-csrf-token'];
     } catch (error) {
-        if (error.response && error.response.status === 403) {
-            return error.response.headers['x-csrf-token'];
-        } else {
-            throw error;
-        }
+        console.error('Failed to retrieve CSRF token:', error.response ? error.response.data : error.message);
+        throw new Error('Failed to retrieve CSRF token');
+    }
+}
+
+// Function to check if a player is in the group
+async function isPlayerInGroup(userId) {
+    try {
+        const response = await axios.get(`https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`);
+        console.log(`Player ${userId} group membership check response:`, response.data);
+        return response.data && response.data.userId === userId;
+    } catch (error) {
+        console.error('Error checking player group membership:', error.response ? error.response.data : error.message);
+        return false;
     }
 }
 
 // Function to handle role changes
-async function updateRole(playerName, newRole) {
+async function updateRole(playerName, newRole, retryCount = 0) {
     try {
         // Retrieve the player's user ID from their username
         const userIdResponse = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(playerName)}`);
+        console.log('User ID Response:', userIdResponse.data);
+        
         if (userIdResponse.data.data.length === 0) {
             throw new Error('Player not found');
         }
         const userId = userIdResponse.data.data[0].id;
 
+        // Check if the player is in the group
+        const isInGroup = await isPlayerInGroup(userId);
+        if (!isInGroup) {
+            throw new Error('Player is not in the group');
+        }
+
         // Get the roles available in the group
         const rolesResponse = await axios.get(`https://groups.roblox.com/v1/groups/${groupId}/roles`);
+        console.log('Roles Response:', rolesResponse.data);
+
         const role = rolesResponse.data.roles.find(r => r.name.toLowerCase().includes(newRole.trim().toLowerCase()));
         if (!role) {
             throw new Error('Role not found');
@@ -54,8 +71,8 @@ async function updateRole(playerName, newRole) {
         // Get the CSRF token
         const csrfToken = await getCsrfToken();
 
-        // Set the player's role
-        await axios({
+        // Update the player's role
+        const updateResponse = await axios({
             method: 'PATCH',
             url: `https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`,
             headers: {
@@ -67,16 +84,23 @@ async function updateRole(playerName, newRole) {
             }
         });
 
+        console.log('Role Update Response:', updateResponse.data);
         return { success: true, message: `Player's role updated to ${newRole}` };
     } catch (error) {
-        if (error.response && error.response.status === 429) {
-            // Rate limit handling
-            console.log('Rate limit hit. Retry later.');
-            return { success: false, message: 'Rate limit hit. Try again later.' };
+        console.error('Error updating role:', error.response ? error.response.data : error.message);
+
+        if (error.response && error.response.status === 401) {
+            console.error('Authorization error. Please check your tokens and permissions.');
+        } else if (error.response && error.response.status === 429) {
+            const retryAfter = error.response.headers['retry-after'] || Math.pow(2, retryCount) * 1000;
+            console.log(`Rate limit hit. Retrying after ${retryAfter}ms.`);
+            await new Promise(resolve => setTimeout(resolve, retryAfter));
+            return updateRole(playerName, newRole, retryCount + 1);
         } else {
-            console.error('Error updating role:', error.message);
-            return { success: false, message: error.message };
+            console.error('Unexpected error:', error.message);
         }
+
+        return { success: false, message: error.message };
     }
 }
 
@@ -97,26 +121,12 @@ client.on('messageCreate', async message => {
             return;
         }
 
-        // Implement debounce logic
-        const now = Date.now();
-        const cooldown = 5000; // 5 seconds cooldown
-
-        if (debounce.has(message.author.id) && now - debounce.get(message.author.id) < cooldown) {
-            message.reply('You are sending commands too quickly. Please wait a moment.');
-            return;
-        }
-
-        debounce.set(message.author.id, now);
-
         const result = await updateRole(playerName, newRole);
         if (result.success) {
             message.reply(`Successfully updated the role for ${playerName} to ${newRole}`);
         } else {
             message.reply(`Failed to update the role: ${result.message}`);
         }
-
-        // Clear debounce after command execution
-        setTimeout(() => debounce.delete(message.author.id), cooldown);
     }
 });
 
