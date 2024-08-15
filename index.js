@@ -1,14 +1,19 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const { Client, Intents } = require('discord.js');
-require('dotenv').config();
+const { Client, GatewayIntentBits } = require('discord.js');
 
 const app = express();
-const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 const robloxToken = process.env.ROBLOX_TOKEN;
 const groupId = process.env.GROUP_ID;
 const discordToken = process.env.DISCORD_TOKEN;
+
+// Log when the Discord bot is ready
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
+});
 
 // Function to get the X-CSRF-TOKEN
 async function getCsrfToken() {
@@ -28,27 +33,23 @@ async function getCsrfToken() {
     }
 }
 
-// Function to set Roblox role
-async function setRole(playerName, newRole) {
+// Function to handle role changes
+async function updateRole(playerName, newRole) {
     try {
-        // Retrieve the player's user ID from their username
         const userIdResponse = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${playerName}`);
         if (userIdResponse.data.data.length === 0) {
             throw new Error('Player not found');
         }
         const userId = userIdResponse.data.data[0].id;
 
-        // Get the roles available in the group
         const rolesResponse = await axios.get(`https://groups.roblox.com/v1/groups/${groupId}/roles`);
         const role = rolesResponse.data.roles.find(r => r.name.toLowerCase() === newRole.toLowerCase());
         if (!role) {
             throw new Error('Role not found');
         }
 
-        // Get the CSRF token
         const csrfToken = await getCsrfToken();
 
-        // Set the player's role
         await axios({
             method: 'PATCH',
             url: `https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`,
@@ -61,37 +62,37 @@ async function setRole(playerName, newRole) {
             }
         });
 
-        return `Successfully updated ${playerName}'s role to ${newRole}`;
+        return { success: true, message: `Player's role updated to ${newRole}` };
     } catch (error) {
-        return `Failed to update the role: ${error.message}`;
+        console.error('Error updating role:', error.message);
+        return { success: false, message: error.message };
     }
 }
 
-// Discord bot setup
-client.once('ready', () => {
-    console.log('Discord bot is ready!');
-});
-
-client.on('messageCreate', async (message) => {
+// Discord command handler
+client.on('messageCreate', async message => {
     if (message.content.startsWith('-rank')) {
-        const args = message.content.slice(6).split(' ');
-        const playerName = args[0];
-        const newRole = args[1];
+        const args = message.content.split(' ');
+        const playerName = args[1];
+        const newRole = args[2];
 
         if (!playerName || !newRole) {
             message.reply('Invalid command format. Use: -rank {playername} {rolename}');
             return;
         }
 
-        const result = await setRole(playerName, newRole);
-        message.reply(result);
+        const result = await updateRole(playerName, newRole);
+        if (result.success) {
+            message.reply(`Successfully updated the role for ${playerName} to ${newRole}`);
+        } else {
+            message.reply(`Failed to update the role: ${result.message}`);
+        }
     }
 });
 
-// Start the bot
 client.login(discordToken);
 
-// Start the server
+// Start the express server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
