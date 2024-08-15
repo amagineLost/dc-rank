@@ -44,6 +44,8 @@ async function isPlayerInGroup(userId) {
 // Function to handle role changes
 async function updateRole(playerName, newRole, retryCount = 0) {
     try {
+        console.log(`Attempt ${retryCount + 1} to update role for player: ${playerName}, Role: ${newRole}`);
+
         // Retrieve the player's user ID from their username
         const userIdResponse = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(playerName)}`);
         console.log('User ID Response:', userIdResponse.data);
@@ -92,7 +94,7 @@ async function updateRole(playerName, newRole, retryCount = 0) {
         if (error.response && error.response.status === 401) {
             console.error('Authorization error. Please check your tokens and permissions.');
         } else if (error.response && error.response.status === 429) {
-            const retryAfter = error.response.headers['retry-after'] || Math.pow(2, retryCount) * 1000;
+            const retryAfter = error.response.headers['retry-after'] || Math.min(8000, Math.pow(2, retryCount) * 1000);
             console.log(`Rate limit hit. Retrying after ${retryAfter}ms.`);
             await new Promise(resolve => setTimeout(resolve, retryAfter));
             return updateRole(playerName, newRole, retryCount + 1);
@@ -121,6 +123,7 @@ client.on('messageCreate', async message => {
             return;
         }
 
+        console.log(`Received command to change role: ${playerName} to ${newRole}`);
         const result = await updateRole(playerName, newRole);
         if (result.success) {
             message.reply(`Successfully updated the role for ${playerName} to ${newRole}`);
