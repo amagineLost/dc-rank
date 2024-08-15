@@ -21,27 +21,29 @@ async function getCsrfToken() {
                 'Cookie': `.ROBLOSECURITY=${robloxToken}`
             }
         });
-        console.log('CSRF Token Retrieved:', response.headers['x-csrf-token']);
         return response.headers['x-csrf-token'];
     } catch (error) {
-        console.error('Failed to retrieve CSRF token:', error.response ? error.response.data : error.message);
-        throw new Error('Failed to retrieve CSRF token');
+        if (error.response && error.response.status === 403) {
+            return error.response.headers['x-csrf-token'];
+        } else {
+            throw error;
+        }
     }
 }
 
-// Function to check if a player is in the group
+// Function to check if the player is in the group
 async function isPlayerInGroup(userId) {
     try {
-        const response = await axios.get(`https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`);
-        console.log(`Player ${userId} group membership check response:`, response.data);
-        return response.data && response.data.userId === userId;
+        const groupResponse = await axios.get(`https://groups.roblox.com/v1/users/${userId}/groups/roles`);
+        const isMember = groupResponse.data.data.some(group => group.group.id === parseInt(groupId));
+        return isMember;
     } catch (error) {
         console.error('Error checking player group membership:', error.response ? error.response.data : error.message);
-        return false;
+        throw error;
     }
 }
 
-// Function to handle role changes with retry logic
+// Function to handle role changes
 async function updateRole(playerName, newRole, retryCount = 0) {
     try {
         console.log(`Attempt ${retryCount + 1} to update role for player: ${playerName}, Role: ${newRole}`);
@@ -49,7 +51,7 @@ async function updateRole(playerName, newRole, retryCount = 0) {
         // Retrieve the player's user ID from their username
         const userIdResponse = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(playerName)}`);
         console.log('User ID Response:', userIdResponse.data);
-        
+
         if (userIdResponse.data.data.length === 0) {
             throw new Error('Player not found');
         }
@@ -57,23 +59,26 @@ async function updateRole(playerName, newRole, retryCount = 0) {
 
         // Check if the player is in the group
         const isInGroup = await isPlayerInGroup(userId);
+        console.log(`Is player in group: ${isInGroup}`);
         if (!isInGroup) {
             throw new Error('Player is not in the group');
         }
 
-        // Get the roles available in the group
+        // Retrieve the role
         const rolesResponse = await axios.get(`https://groups.roblox.com/v1/groups/${groupId}/roles`);
         console.log('Roles Response:', rolesResponse.data);
 
         const role = rolesResponse.data.roles.find(r => r.name.toLowerCase().includes(newRole.trim().toLowerCase()));
         if (!role) {
+            console.error(`Role not found: ${newRole}`);
             throw new Error('Role not found');
         }
+        console.log(`Found Role: ${role.name} with ID: ${role.id}`);
 
         // Get the CSRF token
         const csrfToken = await getCsrfToken();
 
-        // Update the player's role
+        // Set the player's role
         const updateResponse = await axios({
             method: 'PATCH',
             url: `https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`,
