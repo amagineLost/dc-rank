@@ -41,7 +41,7 @@ async function isPlayerInGroup(userId) {
     }
 }
 
-// Function to handle role changes
+// Function to handle role changes with retry logic
 async function updateRole(playerName, newRole, retryCount = 0) {
     try {
         console.log(`Attempt ${retryCount + 1} to update role for player: ${playerName}, Role: ${newRole}`);
@@ -94,7 +94,7 @@ async function updateRole(playerName, newRole, retryCount = 0) {
         if (error.response && error.response.status === 401) {
             console.error('Authorization error. Please check your tokens and permissions.');
         } else if (error.response && error.response.status === 429) {
-            const retryAfter = error.response.headers['retry-after'] || Math.min(8000, Math.pow(2, retryCount) * 1000);
+            const retryAfter = parseInt(error.response.headers['retry-after'], 10) || Math.min(8000, Math.pow(2, retryCount) * 1000);
             console.log(`Rate limit hit. Retrying after ${retryAfter}ms.`);
             await new Promise(resolve => setTimeout(resolve, retryAfter));
             return updateRole(playerName, newRole, retryCount + 1);
