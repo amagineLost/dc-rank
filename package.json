@@ -1,15 +1,18 @@
 {
   "name": "dc-rank",
   "version": "1.0.0",
-  "description": "Discord bot for managing Roblox group ranks",
+  "description": "A Discord bot to manage ranks in a Roblox group",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": ["discord", "bot", "roblox", "rank"],
+  "author": "amagineLost",
+  "license": "ISC",
   "dependencies": {
     "axios": "^1.7.3",
-    "discord.js": "^14.8.0",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "discord.js": "^14.0.0"
   }
 }
